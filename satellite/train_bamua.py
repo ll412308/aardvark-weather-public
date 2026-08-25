@@ -47,7 +47,51 @@ def capture_random_state(loader_generator):
         state["cuda"] = torch.cuda.get_rng_state_all()
     return state
 
+def get_total_parameters(model,out_dir,name='model_parameters.json'):
+    parameter_details = []
 
+    for name, param in model.named_parameters():
+        info = {
+            "name": name,
+            "shape": list(param.shape),
+            "numel": param.numel(),
+            "requires_grad": param.requires_grad,
+        }
+        parameter_details.append(info)
+
+        if param.requires_grad:
+            print(
+                f"{name:60s} "
+                f"shape={str(tuple(param.shape)):25s} "
+                f"numel={param.numel():,}"
+            )
+
+    total_params = sum(p.numel() for p in model.parameters())
+
+    trainable_params = sum(
+        p.numel() for p in model.parameters()
+        if p.requires_grad
+    )
+
+    frozen_params = total_params - trainable_params
+
+    print(f"Total parameters:     {total_params:,}")
+    print(f"Trainable parameters: {trainable_params:,}")
+    print(f"Frozen parameters:    {frozen_params:,}")
+
+    model_parameter_log = {
+        "total_parameters": total_params,
+        "trainable_parameters": trainable_params,
+        "frozen_parameters": frozen_params,
+        "parameters": parameter_details,
+    }
+
+    (out_dir / name).write_text(
+        json.dumps(model_parameter_log, indent=2),
+        encoding="utf-8",
+    )
+
+    
 def restore_random_state(state, loader_generator):
     if not state:
         return
@@ -85,7 +129,7 @@ def make_bamua_config(raw):
 
 def split_datasets_by_time(zarr_path, config, val_fraction, test_fraction,
                            sampling_seed):
-    """Use early 6h bins for train and later bins for validation/test."""
+    """Use early non-empty 6h bins for train and later bins for validation/test."""
     common = dict(
         path=zarr_path,
         n_context=config.n_context,
@@ -99,7 +143,12 @@ def split_datasets_by_time(zarr_path, config, val_fraction, test_fraction,
         raise ValueError("At least three 6h bins are required for train/val/test")
     root = train_dataset._open()
     times = train_dataset._int64_time(root["time_series"][:])
-    indices = np.argsort(times, kind="stable").tolist()
+    counts = np.asarray(root["sample_count"][:], dtype=np.int64)
+    nonempty = np.flatnonzero(counts >= 2)
+    skipped = len(counts) - len(nonempty)
+    if skipped:
+        print(f"skipping_empty_or_tiny_bins={skipped} min_required_count=2")
+    indices = nonempty[np.argsort(times[nonempty], kind="stable")].tolist()
     n_test = max(1, round(len(indices) * test_fraction))
     n_val = max(1, round(len(indices) * val_fraction))
     if n_val + n_test >= len(indices):
@@ -139,6 +188,9 @@ def full_test_sample(model, dataset, sample_index, context_fractions, device,
     item = dataset.get_full_sample(sample_index)
     observations = item["observations"]
     n_points = item["count"]
+    if n_points < 1:
+        print(f"skip_test_sample={sample_index} count={n_points}")
+        return []
     sample_dir = output_dir / f"sample_{sample_index:04d}"
     sample_dir.mkdir(parents=True, exist_ok=True)
     torch.save({
@@ -517,6 +569,8 @@ def main():
         num_workers=num_workers,
     )
     model = BAMUAAutoEncoder(config).to(device)
+    get_total_parameters(model,run_dir)
+
     optimizer = build_optimizer(
         model, optimizer_name, lr=lr, weight_decay=weight_decay
     )

@@ -16,19 +16,19 @@ model:
   metadata_dim: 32
   satellite_embedding_dim: 16
   num_satellite_embeddings: 256
-  grid_resolution_deg: 5.0
+  grid_resolution_deg: 2.0
   local_radius: 1
-  init_lengthscale_deg: 5.0
+  init_lengthscale_deg: 3.0
   eps: 1.0e-6
 
 train:
   epochs: 20
   batch_size: 1
-  num_workers: 0
+  num_workers: 1
   max_steps: 5
   seed: 42
   deterministic: false
-  mixed_precision: true
+  mixed_precision: false
   amp_dtype: "float16"
   validate_every_epochs: 1
   save_every_epochs: 2

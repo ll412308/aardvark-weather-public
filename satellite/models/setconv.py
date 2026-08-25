@@ -67,6 +67,16 @@ class SetConvOffToOn(_LocalGaussian):
         index, weight = self._neighbours(lon, lat)
         if point_mask is not None:
             weight = weight * point_mask.unsqueeze(-1).to(weight.dtype)
+        # Under AMP the point features can be float16/bfloat16 while the
+        # coordinate-derived kernel weights stay float32. scatter_add_ requires
+        # matching dtypes, and density sums are more stable in float32 anyway.
+        accum_dtype = (
+            torch.float32
+            if features.dtype in (torch.float16, torch.bfloat16)
+            else features.dtype
+        )
+        features = features.to(accum_dtype)
+        weight = weight.to(accum_dtype)
         b, n, d = features.shape
         k = index.shape[-1]
         flat_size = self.height * self.width
@@ -95,6 +105,13 @@ class SetConvOnToOff(_LocalGaussian):
         if grid.ndim != 4 or grid.shape[-2:] != (self.height, self.width):
             raise ValueError(f"Expected grid [B,D,{self.height},{self.width}]")
         index, weight = self._neighbours(lon, lat)
+        accum_dtype = (
+            torch.float32
+            if grid.dtype in (torch.float16, torch.bfloat16)
+            else grid.dtype
+        )
+        grid = grid.to(accum_dtype)
+        weight = weight.to(accum_dtype)
         b, d, _, _ = grid.shape
         flat_size = self.height * self.width
         flat = grid.reshape(b, d, flat_size).transpose(1, 2).reshape(b * flat_size, d)

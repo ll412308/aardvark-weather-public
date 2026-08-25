@@ -152,14 +152,23 @@ def _format_ns_time(ns):
     return np.datetime_as_string(np.datetime64(int(ns), "ns"), unit="s")
 
 
-def _print_sample_counts(dataset, max_rows=20):
+def _print_sample_counts(dataset, max_rows=125):
     root = dataset._open()
     counts = np.asarray(root["sample_count"][:], dtype=np.int64)
     starts = np.asarray(root["sample_start"][:], dtype=np.int64)
     times = dataset._int64_time(root["time_series"][:])
+    usable = counts >= 2
     print("[sample counts]")
     print(f"num_samples={len(counts)}")
+    print(f"usable_samples_count>=2={int(usable.sum())}")
+    print(f"empty_or_tiny_samples_count<2={int((~usable).sum())}")
     print(f"min_count={counts.min()} max_count={counts.max()} mean_count={counts.mean():.1f}")
+    if usable.any():
+        print(
+            f"usable_min_count={counts[usable].min()} "
+            f"usable_max_count={counts[usable].max()} "
+            f"usable_mean_count={counts[usable].mean():.1f}"
+        )
     print(f"showing_first={min(max_rows, len(counts))}")
     for i in range(min(max_rows, len(counts))):
         print(
