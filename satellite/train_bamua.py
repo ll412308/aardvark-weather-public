@@ -390,6 +390,26 @@ def checkpoint_state(epoch, model, optimizer, scheduler, scaler, early_stopping,
     }
 
 
+def load_model_weights(model, checkpoint):
+    state = dict(checkpoint["model"])
+    if "latent_projection.weight" in state:
+        state["latent_processor.input_projection.weight"] = state.pop(
+            "latent_projection.weight"
+        )
+    if "latent_projection.bias" in state:
+        state["latent_processor.input_projection.bias"] = state.pop(
+            "latent_projection.bias"
+        )
+    result = model.load_state_dict(state, strict=False)
+    if result.missing_keys or result.unexpected_keys:
+        print(
+            "checkpoint_model_keys: "
+            f"missing={len(result.missing_keys)} "
+            f"unexpected={len(result.unexpected_keys)}"
+        )
+    return result
+
+
 def find_latest_checkpoint(runs_dir, run_name):
     # Only search directly inside timestamped run directories. This excludes
     # reconstructions/*.pth, which contain predictions rather than model state.
@@ -603,10 +623,16 @@ def main():
             )
         except TypeError:  # Compatibility with older PyTorch versions.
             checkpoint = torch.load(resume_path, map_location=device)
-        model.load_state_dict(checkpoint["model"])
-        optimizer.load_state_dict(checkpoint["optimizer"])
+        load_model_weights(model, checkpoint)
+        try:
+            optimizer.load_state_dict(checkpoint["optimizer"])
+        except ValueError as error:
+            print(f"optimizer_state_not_loaded={error}")
         if scheduler is not None and checkpoint.get("scheduler") is not None:
-            scheduler.load_state_dict(checkpoint["scheduler"])
+            try:
+                scheduler.load_state_dict(checkpoint["scheduler"])
+            except ValueError as error:
+                print(f"scheduler_state_not_loaded={error}")
         if checkpoint.get("scaler") is not None:
             scaler.load_state_dict(checkpoint["scaler"])
         early_stopping.load_state_dict(checkpoint.get("early_stopping", {}))
@@ -755,7 +781,7 @@ def main():
                 )
             except TypeError:
                 best_checkpoint = torch.load(best_path, map_location=device)
-            model.load_state_dict(best_checkpoint["model"])
+            load_model_weights(model, best_checkpoint)
             print(f"full_test_model={best_path}")
         run_full_test(
             model=model,

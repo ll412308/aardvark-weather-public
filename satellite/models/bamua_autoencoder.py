@@ -1,6 +1,7 @@
 from torch import nn
 
 from satellite.config import BAMUAConfig
+from .latent_processor import LatentGridProcessor
 from .metadata_encoder import MetadataEncoder
 from .point_decoder import PointDecoder
 from .point_encoder import PointEncoder
@@ -16,7 +17,20 @@ class BAMUAAutoEncoder(nn.Module):
                                           c.num_satellite_embeddings, c.satellite_embedding_dim)
         self.point_to_grid = SetConvOffToOn(c.grid_resolution_deg, c.local_radius,
                                              c.init_lengthscale_deg, c.eps)
-        self.latent_projection = nn.Conv2d(c.point_dim, c.latent_dim, kernel_size=1)
+        self.latent_processor = LatentGridProcessor(
+            in_dim=c.point_dim,
+            latent_dim=c.latent_dim,
+            grid_height=c.grid_height,
+            grid_width=c.grid_width,
+            processor_dim=c.latent_processor_dim,
+            patch_size=c.latent_patch_size,
+            patch_min_height=c.latent_patch_min_height,
+            patch_min_width=c.latent_patch_min_width,
+            depth=c.latent_processor_depth,
+            num_heads=c.latent_processor_heads,
+            window_size=c.latent_window_size,
+            enabled=c.use_latent_processor,
+        )
         self.grid_to_point = SetConvOnToOff(c.grid_resolution_deg, c.local_radius,
                                             c.init_lengthscale_deg, c.eps)
         self.density_to_point = SetConvOnToOff(c.grid_resolution_deg, c.local_radius,
@@ -39,7 +53,7 @@ class BAMUAAutoEncoder(nn.Module):
             satellite_id=satellite_id, is_land=is_land, sample_time=sample_time,
             obs_time=obs_time, zenith=zenith, azimuth=azimuth))
         latent, density = self.point_to_grid(feat, lon, lat)
-        return self.latent_projection(latent), density
+        return self.latent_processor(latent), density
 
     def encode_chunked(self, bt, valid, lon, lat, satellite_id, is_land,
                        obs_time, sample_time, zenith, azimuth, chunk_size):
@@ -69,7 +83,7 @@ class BAMUAAutoEncoder(nn.Module):
                 else density_sum + chunk_density
             )
         latent = latent_sum / density_sum.clamp_min(self.config.eps)
-        return self.latent_projection(latent), density_sum
+        return self.latent_processor(latent), density_sum
 
     def decode(self, latent, density, lon, lat, satellite_id, is_land,
                sample_time, obs_time=None, zenith=None, azimuth=None):

@@ -19,6 +19,14 @@ model:
   grid_resolution_deg: 2.0
   local_radius: 1
   init_lengthscale_deg: 3.0
+  use_latent_processor: true
+  latent_processor_dim: 128
+  latent_patch_size: 0
+  latent_patch_min_height: 64
+  latent_patch_min_width: 128
+  latent_processor_depth: 2
+  latent_processor_heads: 4
+  latent_window_size: 5
   eps: 1.0e-6
 
 train:
