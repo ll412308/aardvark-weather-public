@@ -1,0 +1,60 @@
+run:
+  description: "Small 1BAMUA smoke training run"
+
+data:
+  zarr: "F:/lyh_data/data_zarr_no_provider_filter/1bamua.zarr"
+  n_context: 4096
+  n_target: 1024
+  target_overlap: 0.5
+  val_fraction: 0.1
+  test_fraction: 0.1
+
+model:
+  n_channels: 15
+  point_dim: 128
+  latent_dim: 128
+  metadata_dim: 32
+  satellite_embedding_dim: 16
+  num_satellite_embeddings: 256
+  grid_resolution_deg: 5.0
+  local_radius: 1
+  init_lengthscale_deg: 5.0
+  eps: 1.0e-6
+
+train:
+  epochs: 20
+  batch_size: 1
+  num_workers: 0
+  max_steps: 5
+  seed: 42
+  deterministic: false
+  mixed_precision: true
+  amp_dtype: "float16"
+  validate_every_epochs: 1
+  save_every_epochs: 2
+  resume: false
+
+optimizer:
+  name: "adamw"
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+
+scheduler:
+  name: "warmup_cosine"
+  warmup_epochs: 2
+  min_lr: 1.0e-6
+
+early_stopping:
+  patience: 8
+  min_delta: 1.0e-5
+
+test:
+  enabled: true
+  context_fractions: [1.0, 0.9, 0.8]
+  context_chunk_size: 16384
+  query_chunk_size: 16384
+  max_samples: 1
+
+output:
+  run_name: "bamua_smoke"
+  runs_dir: "runs"
