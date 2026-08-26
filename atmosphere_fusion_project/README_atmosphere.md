@@ -182,6 +182,10 @@ vertical latent level × latitude × longitude
 
 上，使用 3-D shifted-window attention；经度按周期边界处理。
 
+进入各仪器 Adapter 前，空间尺寸会向下调整到 `model.spatial_multiple`
+的整数倍（默认 9，例如 `181×360 -> 180×360`）。Fusion 和 Forecast
+在该工作网格运行，各仪器 Head 输出后再插值回各自原始网格尺寸。
+
 Processor 最后预测 residual：
 
 ```math
@@ -204,21 +208,21 @@ AtmosphereToInstrumentHead_k
 Z_t -> z_t^k
 ```
 
-同时预测 `log(1+density)`。
+`density` 只在输入 Fusion 时用于形成局部 confidence；仪器 Head 不再重构或预测 density。
 
 训练包含两部分：
 
 ```math
 L = lambda_rec L_reconstruct(t)
   + lambda_forecast L_forecast(t+6h,...)
-  + lambda_density L_density
 ```
 
 其中：
 
 - `L_reconstruct(t)`：共同状态必须还能解释当前各仪器 latent；
 - `L_forecast`：Swin 产生的未来共同状态必须能解释未来各仪器 latent；
-- latent loss 只在 target AE 的 `density > threshold` 区域计算，避免无观测区域把 loss 淹没。
+- `loss.use_density_mask: false` 时，仪器可用样本的完整 processed latent 网格参与 loss；
+- `loss.use_density_mask: true` 时，才额外限制在原始 SetConv `density > threshold` 区域。
 
 ## 7. 先做模型纯张量 smoke test
 
@@ -295,46 +299,96 @@ instrument / lead step
 
 输出 latent-space MSE。
 
-## 11. 生成未来 instrument latent
+## 11. 将未来 latent 接回 BAMUA Decoder
 
-例如向前滚 4 个 6h，也就是 24h：
+端到端脚本依次执行：
+
+```text
+Fusion normalized latent
+-> latent_mean/std 反标准化
+-> BAMUA SetConvOnToOff + PointDecoder
+-> standardized BT
+-> channel_mean/std 反标准化
+-> physical BT
+```
+
+先用少量未来真实观测位置测试：
 
 ```bash
-python -m atmosphere.forecast_latents \
-  --config atmosphere/configs/fusion_train.yaml \
-  --checkpoint runs/atmosphere_fusion/best.pth \
+python -m atmosphere.decode_bamua_forecast \
+  --fusion-config atmosphere/configs/fusion_train.yaml \
+  --fusion-checkpoint runs/atmosphere_fusion/<timestamp>/best.pth \
+  --bamua-config ../satellite/configs/bamua_smoke.yaml \
+  --bamua-checkpoint ../runs/bamua_smoke/<timestamp>/best.pth \
   --sample-index 0 \
-  --steps 4 \
-  --output runs/atmosphere_fusion/forecast_24h.pth
+  --steps 1 \
+  --max-query-points 16384 \
+  --output-zarr outputs/bamua_bt_forecast.zarr
 ```
 
-输出中每一个 lead time 都有：
+确认无误后使用 `--max-query-points 0` 解码未来 6h bin 的全部实际观测位置。
+输出同时保存标准化 BT、物理 BT、真实 target 和 validity mask。
 
-```python
-result["steps"][lead]["instruments"][name]["latent"]
-result["steps"][lead]["instruments"][name]["density"]
+### 两种通用端到端输入方式
+
+`atmosphere.bamua_inference` 支持：
+
+```text
+observations: 完整6h观测 -> BAMUA Encoder -> 当前解码或预报
+latent:       已保存latent -> 当前直接解码或 Adapter/Fusion/Forecast
 ```
 
-它们已经被反归一化回该仪器 AE 原本的 latent 尺度，可以接回冻结的 instrument AE decoder。
+观测直接还原到 2° 全球 query grid：
 
-例如 1BAMUA 后续可以：
+```bash
+python -m atmosphere.bamua_inference \
+  --input-mode observations --input-sample-index 0 --forecast-steps 0 \
+  --bamua-config ../satellite/configs/bamua_smoke.yaml \
+  --bamua-checkpoint ../runs/bamua_smoke/<timestamp>/best.pth \
+  --query-resolution-deg 2 --query-satellite-id 0 \
+  --output-zarr outputs/bamua_current_global.zarr
+```
+
+观测编码后向未来预报 4 步：
+
+```bash
+python -m atmosphere.bamua_inference \
+  --input-mode observations --input-sample-index 0 --forecast-steps 4 \
+  --bamua-config ../satellite/configs/bamua_smoke.yaml \
+  --bamua-checkpoint ../runs/bamua_smoke/<timestamp>/best.pth \
+  --fusion-config atmosphere/configs/fusion_train.yaml \
+  --fusion-checkpoint runs/atmosphere_fusion/<timestamp>/best.pth \
+  --query-resolution-deg 2 --query-satellite-id 0 \
+  --output-zarr outputs/bamua_observation_forecast.zarr
+```
+
+从 latent Zarr 读取状态并预报：
+
+```bash
+python -m atmosphere.bamua_inference \
+  --input-mode latent --input-sample-index 0 --forecast-steps 4 \
+  --bamua-config ../satellite/configs/bamua_smoke.yaml \
+  --bamua-checkpoint ../runs/bamua_smoke/<timestamp>/best.pth \
+  --fusion-config atmosphere/configs/fusion_train.yaml \
+  --fusion-checkpoint runs/atmosphere_fusion/<timestamp>/best.pth \
+  --query-resolution-deg 2 --query-satellite-id 0 \
+  --output-zarr outputs/bamua_latent_forecast.zarr
+```
+
+全球网格若不提供 `--land-mask-npy`，脚本会按 `--query-is-land`
+给所有 query 使用同一个海陆值并打印警告。更可靠的任意 query 方法是提供 NPZ：
 
 ```python
-bt_pred = bamua_ae.decode(
-    latent=predicted_latent.unsqueeze(0).cuda(),
-    density=predicted_density.unsqueeze(0).cuda(),
-    lon=query_lon,
-    lat=query_lat,
-    satellite_id=query_satellite_id,
-    is_land=query_is_land,
-    sample_time=future_time,
-    obs_time=query_obs_time,
-    zenith=query_zenith,
-    azimuth=query_azimuth,
+np.savez(
+    "queries.npz",
+    longitude=lon,
+    latitude=lat,
+    satellite_id=satellite_id,
+    is_land=is_land,
 )
 ```
 
-这里未来 BT 的 query metadata 必须由实际未来卫星轨道/扫描几何提供；Decoder 不能凭空决定未来观测位置和扫描角。
+然后使用 `--query-npz queries.npz`。
 
 ## 12. 常规观测怎么接进来
 

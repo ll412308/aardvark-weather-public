@@ -1,0 +1,3 @@
+{"epoch": 1, "train": {"total": NaN, "current_latent": NaN, "future_latent": NaN}, "val": {"total": NaN, "current_latent": NaN, "future_latent": NaN}, "learning_rate": 0.0002}
+{"epoch": 2, "train": {"total": NaN, "current_latent": NaN, "future_latent": NaN}, "val": {"total": NaN, "current_latent": NaN, "future_latent": NaN}, "learning_rate": 0.00010049999999999999}
+{"epoch": 3, "train": {"total": NaN, "current_latent": NaN, "future_latent": NaN}, "val": {"total": NaN, "current_latent": NaN, "future_latent": NaN}, "learning_rate": 1e-06}

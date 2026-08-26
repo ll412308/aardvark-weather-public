@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 
 import torch
-import torch.nn.functional as F
 from torch import nn
 
 
@@ -78,7 +77,7 @@ class InstrumentToAtmosphereAdapter(nn.Module):
 
 
 class AtmosphereToInstrumentHead(nn.Module):
-    """Decode common 3-D atmosphere back to one instrument's 2-D latent + density."""
+    """Decode the common 3-D atmosphere back to one instrument's 2-D latent."""
 
     def __init__(self, atmosphere_dim: int, latent_levels: int, out_dim: int):
         super().__init__()
@@ -88,14 +87,6 @@ class AtmosphereToInstrumentHead(nn.Module):
             nn.SiLU(),
             nn.Conv3d(atmosphere_dim, out_dim, kernel_size=kernel),
         )
-        self.log_density_head = nn.Sequential(
-            nn.Conv3d(atmosphere_dim, max(atmosphere_dim // 2, 8), kernel_size=1),
-            nn.SiLU(),
-            nn.Conv3d(max(atmosphere_dim // 2, 8), 1, kernel_size=kernel),
-        )
 
     def forward(self, atmosphere):
-        latent = self.latent_head(atmosphere).squeeze(2)
-        # Predict log(1 + density), which has a much better dynamic range than raw density.
-        log_density = F.softplus(self.log_density_head(atmosphere).squeeze(2))
-        return latent, log_density
+        return self.latent_head(atmosphere).squeeze(2)

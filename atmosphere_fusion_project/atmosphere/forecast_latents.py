@@ -40,18 +40,17 @@ def main():
     start_time = int(item["time"][0])
     output = {"start_time": start_time, "steps": []}
     with torch.no_grad():
+        output_shapes = model.spatial_shapes(latents)
         state, weights = model.fuse(latents, densities, available)
         for lead in range(1, args.steps + 1):
             state = model.forecast_state(state)
-            decoded = model.decode_state(state)
+            decoded = model.decode_state(state, output_shapes)
             record = {"time": start_time + lead * interval_ns, "instruments": {}}
             for name in model.instrument_names:
                 latent_norm = decoded[name]["latent"]
                 latent_raw = dataset.denormalize(name, latent_norm).squeeze(0).cpu()
-                density = torch.expm1(decoded[name]["log_density"].clamp(max=20)).squeeze(0).cpu()
                 record["instruments"][name] = {
                     "latent": latent_raw,
-                    "density": density,
                 }
             output["steps"].append(record)
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)

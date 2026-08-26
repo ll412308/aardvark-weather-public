@@ -1,0 +1,56 @@
+{
+  "train": [
+    {
+      "epoch": 1,
+      "total": NaN,
+      "current_latent": NaN,
+      "future_latent": NaN
+    },
+    {
+      "epoch": 2,
+      "total": NaN,
+      "current_latent": NaN,
+      "future_latent": NaN
+    },
+    {
+      "epoch": 3,
+      "total": NaN,
+      "current_latent": NaN,
+      "future_latent": NaN
+    }
+  ],
+  "val": [
+    {
+      "epoch": 1,
+      "total": NaN,
+      "current_latent": NaN,
+      "future_latent": NaN
+    },
+    {
+      "epoch": 2,
+      "total": NaN,
+      "current_latent": NaN,
+      "future_latent": NaN
+    },
+    {
+      "epoch": 3,
+      "total": NaN,
+      "current_latent": NaN,
+      "future_latent": NaN
+    }
+  ],
+  "learning_rate": [
+    {
+      "epoch": 1,
+      "lr": 0.0002
+    },
+    {
+      "epoch": 2,
+      "lr": 0.00010049999999999999
+    },
+    {
+      "epoch": 3,
+      "lr": 1e-06
+    }
+  ]
+}
