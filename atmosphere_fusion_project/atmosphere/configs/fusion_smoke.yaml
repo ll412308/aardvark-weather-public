@@ -1,0 +1,52 @@
+data:
+  instruments:
+    1bamua: "F:/lyh_data/latent_zarr/1bamua_latent.zarr"
+    # 第二个仪器完成 AE + latent 预计算后直接加一行，例如：
+    # mhs: "F:/lyh_data/latent_zarr/mhs_latent.zarr"
+  interval_hours: 6
+  rollout_steps: 1
+  normalize_latents: true
+  val_fraction: 0.1
+  test_fraction: 0.1
+
+model:
+  atmosphere_dim: 32
+  latent_levels: 4
+  # 如果你希望共同 latent 的垂直层有明确气压意义，在正式训练配置中填写。
+  pressure_levels_hpa: null
+  fusion_refine_blocks: 1
+  swin:
+    depth: 2
+    num_heads: 4
+    window_size: [2, 4, 4]
+    mlp_ratio: 4.0
+    drop: 0.0
+    attn_drop: 0.0
+    drop_path: 0.0
+
+loss:
+  current_reconstruction_weight: 0.25
+  forecast_weight: 1.0
+  density_weight: 0.05
+  density_threshold: 1.0e-6
+
+train:
+  epochs: 3
+  batch_size: 1
+  num_workers: 0
+  lr: 2.0e-4
+  min_lr: 1.0e-6
+  warmup_epochs: 1
+  weight_decay: 1.0e-4
+  grad_clip: 1.0
+  instrument_dropout: 0.0
+  mixed_precision: true
+  amp_dtype: "float16"
+  seed: 42
+  deterministic: false
+  max_steps_per_epoch: 3
+  early_stopping_patience: 5
+  device: "cuda"
+
+output:
+  dir: "runs/atmosphere_fusion_smoke"

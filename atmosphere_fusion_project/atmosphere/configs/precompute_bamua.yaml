@@ -1,0 +1,16 @@
+instrument: "1bamua"
+raw_zarr: "F:/lyh_data/data_zarr_no_provider_filter/1bamua.zarr"
+# 修改成你训练好的 BAMUAAutoEncoder checkpoint。
+checkpoint: "runs/bamua_smoke/REPLACE_WITH_TIMESTAMP/best.pth"
+output_zarr: "F:/lyh_data/latent_zarr/1bamua_latent.zarr"
+
+# 与你 sat_test 分支当前代码直接兼容。
+model_class: "satellite.models:BAMUAAutoEncoder"
+config_class: "satellite.config:BAMUAConfig"
+dataset_class: "satellite.datasets:BAMUAZarrDataset"
+
+# encode_chunked 会把约 40 万观测分块聚合，不一次性送入局部 SetConv。
+encode_chunk_size: 65536
+mixed_precision: true
+amp_dtype: "float16"
+device: "cuda"

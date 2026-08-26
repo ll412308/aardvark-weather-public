@@ -1,0 +1,62 @@
+data:
+  instruments:
+    1bamua: "F:/lyh_data/latent_zarr/1bamua_latent.zarr"
+    # 后续把所有已经独立训练好 AE 的仪器 latent store 加进来：
+    # 1bamub: "F:/lyh_data/latent_zarr/1bamub_latent.zarr"
+    # mhs:    "F:/lyh_data/latent_zarr/mhs_latent.zarr"
+    # atms:   "F:/lyh_data/latent_zarr/atms_latent.zarr"
+    # cris:   "F:/lyh_data/latent_zarr/cris_latent.zarr"
+    # conv:   "F:/lyh_data/latent_zarr/conventional_latent.zarr"
+  interval_hours: 6
+  # 先 1 步训练跑通；稳定后建议逐渐增加到 2/4/8。
+  rollout_steps: 1
+  normalize_latents: true
+  val_fraction: 0.1
+  test_fraction: 0.1
+
+model:
+  atmosphere_dim: 96
+  latent_levels: 4
+  # null = 4 个 learned latent levels。
+  # 若你决定使用物理气压层，例如 4 层，可改为 [1000, 700, 400, 200]。
+  pressure_levels_hpa: null
+  fusion_refine_blocks: 2
+  swin:
+    depth: 6
+    num_heads: 6
+    # 对 2° latent grid: L=4, H=91, W=180 时 (2,7,6) 无需 padding。
+    window_size: [2, 7, 6]
+    mlp_ratio: 4.0
+    drop: 0.0
+    attn_drop: 0.0
+    drop_path: 0.1
+
+loss:
+  # t 时刻共同状态要能还原各仪器自身 latent。
+  current_reconstruction_weight: 0.25
+  # 真正预报损失：Swin 后的未来共同状态 -> 各仪器未来 latent。
+  forecast_weight: 1.0
+  # 同时预测 instrument decoder 所需的 density，便于以后接回原 AE decoder。
+  density_weight: 0.05
+  density_threshold: 1.0e-6
+
+train:
+  epochs: 100
+  batch_size: 1
+  num_workers: 0
+  lr: 1.0e-4
+  min_lr: 1.0e-6
+  warmup_epochs: 5
+  weight_decay: 1.0e-4
+  grad_clip: 1.0
+  # 多仪器以后建议 0.1~0.3，使共同大气状态不依赖固定仪器组合。
+  instrument_dropout: 0.15
+  mixed_precision: true
+  amp_dtype: "bfloat16"
+  seed: 42
+  deterministic: false
+  early_stopping_patience: 20
+  device: "cuda"
+
+output:
+  dir: "runs/atmosphere_fusion"
