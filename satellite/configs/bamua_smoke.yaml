@@ -66,3 +66,6 @@ test:
 output:
   run_name: "bamua_smoke"
   runs_dir: "runs"
+
+export:
+  calculate_stats: false

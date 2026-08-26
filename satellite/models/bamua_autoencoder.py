@@ -33,13 +33,18 @@ class BAMUAAutoEncoder(nn.Module):
         )
         self.grid_to_point = SetConvOnToOff(c.grid_resolution_deg, c.local_radius,
                                             c.init_lengthscale_deg, c.eps)
-        self.density_to_point = SetConvOnToOff(c.grid_resolution_deg, c.local_radius,
-                                               c.init_lengthscale_deg, c.eps)
-        self.query_metadata = MetadataEncoder(c.metadata_dim, c.num_satellite_embeddings,
-                                              c.satellite_embedding_dim,
-                                              include_delta_time=False,
-                                              include_angles=False)
-        self.point_decoder = PointDecoder(c.latent_dim, c.metadata_dim, c.n_channels)
+        # Decoder metadata only contains quantities known at generation time:
+        # satellite identity, sample time, and the land/sea flag.
+        self.query_metadata = MetadataEncoder(
+            c.metadata_dim,
+            c.num_satellite_embeddings,
+            c.satellite_embedding_dim,
+            include_delta_time=False,
+            include_angles=False,
+        )
+        self.point_decoder = PointDecoder(
+            c.latent_dim, c.metadata_dim, c.n_channels
+        )
 
     @staticmethod
     def _metadata(satellite_id, is_land, sample_time, obs_time=None,
@@ -85,15 +90,25 @@ class BAMUAAutoEncoder(nn.Module):
         latent = latent_sum / density_sum.clamp_min(self.config.eps)
         return self.latent_processor(latent), density_sum
 
-    def decode(self, latent, density, lon, lat, satellite_id, is_land,
-               sample_time, obs_time=None, zenith=None, azimuth=None):
+    def decode(self, latent, lon, lat, satellite_id, is_land, sample_time):
+        """Predict BT using latent features and metadata known at query time."""
         query_latent = self.grid_to_point(latent, lon, lat)
-        query_density = self.density_to_point(density, lon, lat)
-        query_meta = self.query_metadata(**self._metadata(
-            satellite_id=satellite_id, is_land=is_land, sample_time=sample_time))
-        return self.point_decoder(query_latent, query_density, query_meta)
+        query_meta = self.query_metadata(
+            satellite_id=satellite_id,
+            is_land=is_land,
+            obs_time=None,
+            sample_time=sample_time,
+        )
+        return self.point_decoder(query_latent, query_meta)
 
     def forward(self, context, target):
         latent, density = self.encode(**context)
-        pred = self.decode(latent=latent, density=density, **target)
+        pred = self.decode(
+            latent=latent,
+            lon=target["lon"],
+            lat=target["lat"],
+            satellite_id=target["satellite_id"],
+            is_land=target["is_land"],
+            sample_time=target["sample_time"],
+        )
         return pred, latent, density

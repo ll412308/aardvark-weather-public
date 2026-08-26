@@ -230,15 +230,28 @@ def full_test_sample(model, dataset, sample_index, context_fractions, device,
 
             for start in range(0, n_points, query_chunk_size):
                 end = min(start + query_chunk_size, n_points)
-                query = {}
-                for key in ("lon", "lat", "satellite_id", "is_land",
-                            "obs_time", "zenith", "azimuth"):
-                    query[key] = observations[key][start:end].unsqueeze(0).to(device)
-                query["sample_time"] = observations["sample_time"].unsqueeze(0).to(device)
+                query_lon = observations["lon"][start:end].unsqueeze(0).to(device)
+                query_lat = observations["lat"][start:end].unsqueeze(0).to(device)
+                query_satellite_id = observations["satellite_id"][
+                    start:end
+                ].unsqueeze(0).to(device)
+                query_is_land = observations["is_land"][
+                    start:end
+                ].unsqueeze(0).to(device)
+                query_sample_time = observations["sample_time"].unsqueeze(0).to(
+                    device
+                )
                 with torch.autocast(
                     device_type="cuda", dtype=amp_dtype, enabled=amp_enabled
                 ):
-                    pred = model.decode(latent=latent, density=density, **query)
+                    pred = model.decode(
+                        latent=latent,
+                        lon=query_lon,
+                        lat=query_lat,
+                        satellite_id=query_satellite_id,
+                        is_land=query_is_land,
+                        sample_time=query_sample_time,
+                    )
                 pred = pred.squeeze(0).float().cpu()
                 predictions.append(pred)
                 truth = observations["bt"][start:end]
@@ -400,6 +413,28 @@ def load_model_weights(model, checkpoint):
         state["latent_processor.input_projection.bias"] = state.pop(
             "latent_projection.bias"
         )
+    # Migrate either previous decoder layout:
+    #   [latent, density, metadata] -> [latent, metadata]
+    #   [latent]                    -> [latent, newly initialised metadata]
+    decoder_key = "point_decoder.mlp.0.weight"
+    if decoder_key in state:
+        expected = model.state_dict()[decoder_key]
+        old = state[decoder_key]
+        if old.shape != expected.shape and old.shape[0] == expected.shape[0]:
+            latent_dim = model.config.latent_dim
+            metadata_dim = model.config.metadata_dim
+            if old.shape[1] == latent_dim + 1 + metadata_dim:
+                state[decoder_key] = torch.cat([
+                    old[:, :latent_dim],
+                    old[:, latent_dim + 1:],
+                ], dim=1)
+            elif old.shape[1] == latent_dim:
+                migrated = expected.clone()
+                migrated[:, :latent_dim] = old
+                state[decoder_key] = migrated
+        if state[decoder_key].shape != expected.shape:
+            # Unknown historical layout: keep the newly initialised layer.
+            state.pop(decoder_key)
     result = model.load_state_dict(state, strict=False)
     if result.missing_keys or result.unexpected_keys:
         print(

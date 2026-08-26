@@ -32,11 +32,15 @@ def synthetic_batch(batch=1, n_context=100, n_target=20, channels=15):
 
 def run_batch(model, context, target, target_bt, target_valid):
     pred, latent, density = model(context, target)
-    query_without_optional = {
-        key: target[key] for key in ("lon", "lat", "satellite_id", "is_land", "sample_time")
-    }
-    pred_without_optional = model.decode(latent, density, **query_without_optional)
-    assert pred_without_optional.shape == target_bt.shape
+    pred_direct = model.decode(
+        latent=latent,
+        lon=target["lon"],
+        lat=target["lat"],
+        satellite_id=target["satellite_id"],
+        is_land=target["is_land"],
+        sample_time=target["sample_time"],
+    )
+    assert pred_direct.shape == target_bt.shape
     assert pred.shape == target_bt.shape
     assert latent.shape[1:] == (model.config.latent_dim,
                                 model.config.grid_height, model.config.grid_width)
