@@ -46,6 +46,15 @@ def parse_args():
         ),
     )
     parser.add_argument(
+        "--standardize-latents",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Write channel-wise standardized latent values. Defaults to "
+            "export.standardize_latents in YAML, or true."
+        ),
+    )
+    parser.add_argument(
         "--amp-dtype", default="float16", choices=("float16", "bfloat16")
     )
     parser.add_argument(
@@ -199,6 +208,7 @@ def create_output(path, n_samples, config, times, source_indices, counts,
         "source_zarr": str(input_path_resolved),
         "model_config": json.dumps(vars(config), sort_keys=True),
         "latent_stats_calculated": False,
+        "latents_standardized": False,
         "export_complete": False,
     })
     return root
@@ -212,6 +222,14 @@ def main():
     calculate_stats = args.calculate_stats
     if calculate_stats is None:
         calculate_stats = bool(raw.get("export", {}).get("calculate_stats", False))
+    standardize_latents = args.standardize_latents
+    if standardize_latents is None:
+        standardize_latents = bool(
+            raw.get("export", {}).get("standardize_latents", True)
+        )
+    # Standardization needs the statistics of the raw exported latent values.
+    if standardize_latents:
+        calculate_stats = True
     input_zarr = args.input_zarr or raw.get("data", {}).get("zarr")
     if not input_zarr:
         raise ValueError("Provide --input-zarr or data.zarr in the YAML file")
@@ -258,7 +276,8 @@ def main():
     print(
         f"device={device} samples={len(source_indices)} "
         f"latent_shape={output['latent'].shape} chunk_size={args.chunk_size} "
-        f"calculate_stats={calculate_stats}"
+        f"calculate_stats={calculate_stats} "
+        f"standardize_latents={standardize_latents}"
     )
 
     channel_sum = np.zeros(config.latent_dim, dtype=np.float64)
@@ -289,12 +308,31 @@ def main():
         mean = channel_sum / values_per_channel
         variance = channel_square_sum / values_per_channel - np.square(mean)
         std = np.sqrt(np.maximum(variance, 0.0))
+        std = np.maximum(std, 1.0e-6)
         output["latent_mean"][:] = mean.astype(np.float32)
         output["latent_std"][:] = std.astype(np.float32)
         output.attrs["latent_stats_calculated"] = True
         output.attrs["latent_stats_element_count_per_channel"] = int(
             values_per_channel
         )
+        if standardize_latents:
+            mean_grid = mean.astype(np.float32)[:, None, None]
+            std_grid = std.astype(np.float32)[:, None, None]
+            for output_index in tqdm(
+                range(len(source_indices)),
+                desc="standardize latent Zarr",
+                unit="bin",
+            ):
+                latent = np.asarray(
+                    output["latent"][output_index], dtype=np.float32
+                )
+                output["latent"][output_index] = (
+                    latent - mean_grid
+                ) / std_grid
+            output.attrs["latents_standardized"] = True
+            output.attrs["latent_standardization"] = (
+                "stored_latent=(raw_latent-latent_mean)/latent_std"
+            )
 
     output.attrs["export_complete"] = True
     print(f"saved={Path(args.output_zarr).resolve()}")
