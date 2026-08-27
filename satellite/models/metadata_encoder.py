@@ -44,12 +44,12 @@ class MetadataEncoder(nn.Module):
     def forward(self, satellite_id, is_land, obs_time, sample_time,
                 zenith=None, azimuth=None):
         satellite_id = torch.remainder(satellite_id.long(), self.num_satellite_embeddings)
-        sat = self.satellite_embedding(satellite_id)
+        sat = self.satellite_embedding(satellite_id)  # B, N, embedding_dim
         while sample_time.ndim < satellite_id.ndim:
-            sample_time = sample_time.unsqueeze(-1)
+            sample_time = sample_time.unsqueeze(-1)  # B, 1
         dtype = sat.dtype
-        sample_time_features = self._sample_time_encoding(sample_time)
-        sample_time_features = sample_time_features.expand(*satellite_id.shape, -1)
+        sample_time_features = self._sample_time_encoding(sample_time)  # B,1,12
+        sample_time_features = sample_time_features.expand(*satellite_id.shape, -1)  # B, N, 12
         pieces = [sample_time_features, is_land.to(torch.float64).unsqueeze(-1)]
         if self.include_delta_time:
             if obs_time is None:
@@ -63,17 +63,19 @@ class MetadataEncoder(nn.Module):
                 torch.cos(delta_phase),
                 torch.sin(2.0 * delta_phase),
                 torch.cos(2.0 * delta_phase),
-            ], dim=-1))
+            ], dim=-1))  # STACK: B, N, 5
         if self.include_angles:
             if zenith is None or azimuth is None:
                 raise ValueError("zenith and azimuth are required when include_angles=True")
-            azimuth_rad = torch.deg2rad(azimuth.to(torch.float64))
+            azimuth_rad = torch.deg2rad(azimuth.to(torch.float64))  # B,N
             zenith_rad = torch.deg2rad(zenith.to(torch.float64))
             pieces.append(torch.stack([
                 torch.sin(azimuth_rad),
                 torch.cos(azimuth_rad),
                 zenith.to(torch.float64) / 90.0,
                 torch.cos(zenith_rad),
-            ], dim=-1))
-        numeric = torch.cat(pieces, dim=-1).to(dtype)
-        return self.mlp(torch.cat([sat, numeric], dim=-1))
+            ], dim=-1))  # STACK: B, N, 4
+        numeric = torch.cat(pieces, dim=-1).to(dtype)  # B, N, numeric_dim(12 + 1 or + 5 + 4)
+
+        output = self.mlp(torch.cat([sat, numeric], dim=-1))  # B, N, output_dim
+        return output

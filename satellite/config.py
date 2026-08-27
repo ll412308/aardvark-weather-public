@@ -26,6 +26,7 @@ class BAMUAConfig:
     n_target: int = 16_384
     target_overlap: float = 0.5
     eps: float = 1.0e-6
+    include_angles: bool = True
 
     @property
     def grid_height(self):

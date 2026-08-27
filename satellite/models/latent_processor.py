@@ -148,7 +148,7 @@ class LatentGridProcessor(nn.Module):
         self.enabled = bool(enabled)
         self.grid_height = int(grid_height)
         self.grid_width = int(grid_width)
-        self.work_height = self.grid_height - 1 if self.grid_height % 2 else self.grid_height
+        self.work_height = self.grid_height - 1 if self.grid_height % 9 != 0 else self.grid_height
         self.work_width = self.grid_width
         self.patch_size = _choose_patch_size(
             self.work_height, self.work_width, int(patch_size),
@@ -190,6 +190,7 @@ class LatentGridProcessor(nn.Module):
         for block in self.blocks:
             x = block(x)
         x = x.permute(0, 3, 1, 2)
+
         if self.patch_size > 1:
             x = F.interpolate(
                 x, size=(self.work_height, self.work_width),

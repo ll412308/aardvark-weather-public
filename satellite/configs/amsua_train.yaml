@@ -1,13 +1,13 @@
 run:
-  description: "Small 1BAMUA smoke training run"
+  description: "1BAMUA training run"
 
 # true: skip training and validation, load train.resume, and run test directly
-test_only: false
+test_only: true
 
 data:
   zarr: "F:/lyh_data/data_zarr_no_provider_filter/1bamua.zarr"
-  n_context: 4096
-  n_target: 1024
+  n_context: 65000
+  n_target: 17000
   target_overlap: 0.5
   val_fraction: 0.1
   test_fraction: 0.1
@@ -18,12 +18,13 @@ model:
   latent_dim: 128
   metadata_dim: 32
   satellite_embedding_dim: 16
-  num_satellite_embeddings: 256
+  num_satellite_embeddings: 512
+  include_angles: true  # encoder allow angle features
   grid_resolution_deg: 2.0
   local_radius: 1
-  init_lengthscale_deg: 3.0
-  use_latent_processor: true
-  latent_processor_dim: 128
+  init_lengthscale_deg: 2.0
+  use_latent_processor: true  # whether to use the latent processor (transformer)
+  latent_processor_dim: 256
   latent_patch_size: 0
   latent_patch_min_height: 64
   latent_patch_min_width: 128
@@ -33,18 +34,18 @@ model:
   eps: 1.0e-6
 
 train:
-  epochs: 20
+  epochs: 100
   batch_size: 1
-  num_workers: 1
+  num_workers: 2
   pin_memory: true
-  max_steps: 5
+  max_steps: null
   seed: 42
   deterministic: false
   mixed_precision: false
   amp_dtype: "float16"
   validate_every_epochs: 1
   save_every_epochs: 2
-  resume: false
+  resume: "C:\\Users\\Lenovo\\code\\local_code\\aardvark-weather-public\\runs\\bamua_training\\20260827_113942\\best.pth"
 
 optimizer:
   name: "adamw"
@@ -78,13 +79,13 @@ plot:
   max_points: 100000          # 0 plots every valid point
   point_size: 3.0
   global_enabled: true
-  global_resolution_deg: 2.0
+  global_resolution_deg: 0.25
   global_query_chunk_size: 16384
-  global_satellite_id: null   # null draws every satellite_id separately
+  global_satellite_id: 4   # null draws every satellite_id separately
   global_is_land: 0           # temporary constant metadata for the global grid
 
 output:
-  run_name: "bamua_smoke"
+  run_name: "bamua_training"
   runs_dir: "runs"
 
 export:
