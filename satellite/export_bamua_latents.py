@@ -33,7 +33,11 @@ def parse_args():
         "--device", default="auto", choices=("auto", "cpu", "cuda")
     )
     parser.add_argument(
-        "--mixed-precision", action=argparse.BooleanOptionalAction, default=True
+        "--mixed-precision", action=argparse.BooleanOptionalAction, default=False,
+        help=(
+            "Use AMP while exporting. Disabled by default because a model trained "
+            "in float32 can produce non-finite latent values in float16 inference."
+        ),
     )
     parser.add_argument(
         "--calculate-stats",
@@ -296,6 +300,25 @@ def main():
                 amp_enabled=amp_enabled,
                 amp_dtype=amp_dtype,
             )
+            # Never silently write a corrupt latent store. In particular,
+            # float16 export can overflow even when float32 AE training was stable.
+            if not np.isfinite(latent).all():
+                non_finite = int((~np.isfinite(latent)).sum())
+                raise FloatingPointError(
+                    f"Non-finite latent values for source sample {sample_index}: "
+                    f"count={non_finite}. "
+                    + (
+                        "Re-export with --no-mixed-precision."
+                        if amp_enabled else
+                        "AMP is already disabled; inspect non-finite source fields."
+                    )
+                )
+            if not np.isfinite(density).all():
+                non_finite = int((~np.isfinite(density)).sum())
+                raise FloatingPointError(
+                    f"Non-finite density values for source sample {sample_index}: "
+                    f"count={non_finite}."
+                )
             output["latent"][output_index] = latent
             output["density"][output_index] = density
             if calculate_stats:
@@ -309,6 +332,11 @@ def main():
         variance = channel_square_sum / values_per_channel - np.square(mean)
         std = np.sqrt(np.maximum(variance, 0.0))
         std = np.maximum(std, 1.0e-6)
+        if not np.isfinite(mean).all() or not np.isfinite(std).all():
+            raise FloatingPointError(
+                "Calculated latent_mean/latent_std contain NaN or Inf; "
+                "the output Zarr will remain export_complete=False."
+            )
         output["latent_mean"][:] = mean.astype(np.float32)
         output["latent_std"][:] = std.astype(np.float32)
         output.attrs["latent_stats_calculated"] = True

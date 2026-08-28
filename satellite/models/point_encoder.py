@@ -21,8 +21,13 @@ class PointEncoder(nn.Module):
 
     def forward(self, bt, valid, **metadata):
         # Invalid values are zero-filled, while the explicit mask tells the MLP why.
-        bt = torch.where(valid, bt, torch.zeros_like(bt))
-        radiance = self.radiance(torch.cat([bt, valid.to(bt.dtype)], dim=-1))  # B, N, 128
+        # Also treat an unexpected NaN/Inf as invalid; torch.where(valid, bt, 0)
+        # alone would retain a non-finite value when its saved valid flag is True.
+        finite_valid = valid & torch.isfinite(bt)
+        bt = torch.where(finite_valid, bt, torch.zeros_like(bt))
+        radiance = self.radiance(
+            torch.cat([bt, finite_valid.to(bt.dtype)], dim=-1)
+        )  # B, N, 128
         metadata_output = self.metadata(**metadata)  # B, N, metadata_dim
         return self.fusion(torch.cat([radiance, metadata_output], dim=-1))  # B, N, point_dim
     

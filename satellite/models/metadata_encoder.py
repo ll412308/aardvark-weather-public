@@ -67,12 +67,22 @@ class MetadataEncoder(nn.Module):
         if self.include_angles:
             if zenith is None or azimuth is None:
                 raise ValueError("zenith and azimuth are required when include_angles=True")
-            azimuth_rad = torch.deg2rad(azimuth.to(torch.float64))  # B,N
-            zenith_rad = torch.deg2rad(zenith.to(torch.float64))
+            # A single non-finite angle would pass through sin/cos and then
+            # spread from one point into many grid cells through SetConv and
+            # latent attention. Missing viewing angles have no separate mask in
+            # this checkpoint, so use a finite neutral fallback of 0 degrees.
+            azimuth = torch.nan_to_num(
+                azimuth.to(torch.float64), nan=0.0, posinf=0.0, neginf=0.0
+            )
+            zenith = torch.nan_to_num(
+                zenith.to(torch.float64), nan=0.0, posinf=0.0, neginf=0.0
+            )
+            azimuth_rad = torch.deg2rad(azimuth)  # B,N
+            zenith_rad = torch.deg2rad(zenith)
             pieces.append(torch.stack([
                 torch.sin(azimuth_rad),
                 torch.cos(azimuth_rad),
-                zenith.to(torch.float64) / 90.0,
+                zenith / 90.0,
                 torch.cos(zenith_rad),
             ], dim=-1))  # STACK: B, N, 4
         numeric = torch.cat(pieces, dim=-1).to(dtype)  # B, N, numeric_dim(12 + 1 or + 5 + 4)
