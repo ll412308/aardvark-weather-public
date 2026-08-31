@@ -1,0 +1,125 @@
+test_only: false
+
+data:
+  zarr: "F:/lyh_data/gps_zarr_no_provider/gpsro.zarr"
+  n_context: 65000
+  n_target: 17000
+  target_overlap: 0.5
+  val_fraction: 0.1
+  test_fraction: 0.1
+
+model:
+  point_dim: 64
+  latent_dim: 128
+  metadata_dim: 32
+  # [value, valid]: 2 -> 64 -> 64. The last number is the value feature size.
+  value_encoder_hidden_dims: [128, 64]
+  # satellite/time/land metadata -> 64 -> metadata_dim
+  metadata_hidden_dims: [64]
+  # [value feature, metadata feature] -> 64 -> point_dim
+  fusion_hidden_dims: [128]
+  # [query latent, query metadata] -> 64 -> 64 -> refractivity(1)
+  decoder_hidden_dims: [128, 64]
+  satellite_embedding_dim: 16
+  num_satellite_embeddings: 256
+
+  # Coarse first version: [B,64,14,37,72], rather than a huge 2-degree/1-km grid.
+  grid_resolution_deg: 1.0
+  vertical_min_m: -1000.0
+  vertical_max_m: 64000.0
+  vertical_resolution_m: 5000.0
+  horizontal_radius: 1
+  vertical_radius: 1
+  init_horizontal_lengthscale_km: 550.0
+  init_vertical_lengthscale_m: 1000.0
+
+  # Fold [point_dim, vertical_levels] into channels, then reuse the same
+  # 2-D Swin-style processor as the radiance autoencoder.
+  use_latent_processor: true
+  latent_processor_dim: 128
+  latent_patch_size: 0
+  latent_patch_min_height: 64
+  latent_patch_min_width: 128
+  latent_processor_depth: 8
+  latent_processor_heads: 4
+  latent_window_size: 5
+  setconv_chunk_size: 8192
+  decode_chunk_size: 8192
+  eps: 1.0e-6
+
+train:
+  epochs: 100
+  batch_size: 1
+  # global_land_mask expands a high-resolution world mask in memory. On
+  # Windows keep this at 0 so worker processes do not each copy that mask.
+  num_workers: 0
+  pin_memory: true
+  max_steps_per_epoch: null
+  max_validation_steps: null
+  validate_every_epochs: 1
+  save_every_epochs: 2
+  grad_clip: 1.0
+  mixed_precision: true
+  amp_dtype: "bfloat16"
+  seed: 42
+  deterministic: false
+  device: "auto"
+  resume: null
+
+optimizer:
+  name: "adamw"
+  lr: 1.0e-4
+  weight_decay: 1.0e-4
+
+scheduler:
+  name: "warmup_cosine"
+  warmup_epochs: 5
+  min_lr: 1.0e-6
+
+early_stopping:
+  patience: 20
+  min_delta: 1.0e-5
+
+test:
+  enabled: true
+  max_samples: 1
+  context_points: 65536       # 0 uses every observation in the selected 6h bin
+  random_query_points: 30000  # 0 reconstructs every observation for the scatter
+  context_chunk_size: 8192
+  query_chunk_size: 8192
+  seed: 44
+
+plot:
+  enabled: true
+  loss_enabled: true
+  loss_log_scale: true
+  validation_enabled: true
+  test_enabled: true
+
+  # standardized: model units; log: inverse z-score to log(N); physical: N-units
+  value_space: "log"
+  max_points: 30000
+  test_max_points: 50000
+  point_size: 4.0
+
+  global_enabled: true
+  global_resolution_deg: 1.0
+  # null uses every vertical SetConv node from vertical_min_m to vertical_max_m.
+  global_heights_m: null
+  global_query_chunk_size: 8192
+  global_max_points: 100000
+  global_point_size: 3.0
+  # null uses the first satellite ID from the selected real sample.
+  global_satellite_id: null
+
+output:
+  run_name: "gpsro_autoencoder"
+  runs_dir: "runs"
+
+export:
+  calculate_stats: true
+  standardize_latents: true
+  save_density_3d: true
+  # null keeps the AE native grid. Set 2.0 to export [91,180] for a
+  # 2-degree BAMUA/fusion dataset.
+  output_resolution_deg: null
