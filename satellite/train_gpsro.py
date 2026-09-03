@@ -292,10 +292,14 @@ def save_test_plots(model, dataset, dataset_index, output_dir, test_options,
     if plot_options["global_enabled"]:
         heights = plot_options["global_heights_m"]
         if heights is None:
-            heights = np.linspace(
+            # vertical_max_m is the exclusive upper edge of the final
+            # standardisation bin. Querying exactly that boundary creates an
+            # unsupported extra level (for example 64 km) and can dominate the
+            # log(N) colour scale, so default global plots stop one level below.
+            heights = np.arange(
                 model.config.vertical_min_m,
                 model.config.vertical_max_m,
-                model.config.grid_depth,
+                model.config.vertical_resolution_m,
                 dtype=np.float32,
             ).tolist()
         configured_id = plot_options["global_satellite_id"]
@@ -435,7 +439,9 @@ def main():
         "loss_log_scale": bool(plot_cfg.get("loss_log_scale", True)),
         "validation_enabled": bool(plot_cfg.get("validation_enabled", True)),
         "test_enabled": bool(plot_cfg.get("test_enabled", True)),
-        "value_space": str(plot_cfg.get("value_space", "log")).lower(),
+        # GPSRO validation/test figures always show inverse-standardized
+        # log(N). Model losses and saved tensors remain standardized.
+        "value_space": "log",
         "max_points": int(plot_cfg.get("max_points", 30_000)),
         "test_max_points": int(plot_cfg.get("test_max_points", 50_000)),
         "point_size": float(plot_cfg.get("point_size", 4.0)),
@@ -452,8 +458,6 @@ def main():
         "global_satellite_id": plot_cfg.get("global_satellite_id"),
         "seed": int(train_cfg.get("seed", 42)),
     }
-    if plot_options["value_space"] not in ("standardized", "log", "physical"):
-        raise ValueError("plot.value_space must be standardized, log, or physical")
     if plot_options["global_resolution_deg"] <= 0:
         raise ValueError("plot.global_resolution_deg must be positive")
     test_options = {

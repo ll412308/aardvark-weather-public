@@ -97,14 +97,15 @@ plot:
   test_enabled: true
 
   # standardized: model units; log: inverse z-score to log(N); physical: N-units
-  value_space: "log"
+  value_space: "log"  # GPSRO figures are fixed to inverse-standardized log(N)
   max_points: 30000
   test_max_points: 50000
   point_size: 4.0
 
   global_enabled: true
   global_resolution_deg: 1.0
-  # null uses every vertical SetConv node from vertical_min_m to vertical_max_m.
+  # null uses vertical levels in [vertical_min_m, vertical_max_m); the exclusive
+  # upper boundary is omitted because it has no training height bin.
   global_heights_m: null
   global_query_chunk_size: 8192
   global_max_points: 100000

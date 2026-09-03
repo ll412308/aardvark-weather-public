@@ -97,7 +97,7 @@ def save_loss_plot(history, output_dir, current_epoch, log_scale=True):
 
 def save_reconstruction_3d(lon, lat, height, truth, prediction, valid,
                            output_dir, prefix, stats, value_space="log",
-                           max_points=30_000, point_size=4.0, seed=0,
+                           max_points=60_000, point_size=4.0, seed=0,
                            title_prefix="GPSRO reconstruction"):
     """Save side-by-side target/reconstruction/difference 3-D scatter panels."""
     output_dir = Path(output_dir)
@@ -150,7 +150,20 @@ def decode_global_3d(model, latent, sample_time, satellite_id,
     # example 7 degrees) create an invalid latitude greater than 90 degrees.
     if not len(latitude) or latitude[-1] < 90.0:
         latitude = np.concatenate([latitude, np.asarray([90.0], np.float32)])
-    heights = np.asarray(heights_m, dtype=np.float32)
+    heights = np.asarray(heights_m, dtype=np.float32).reshape(-1)
+    # GPSRO standardisation statistics use half-open height bins. In
+    # particular, vertical_max_m is an upper boundary rather than a trained
+    # query level. Drop out-of-range configured levels before decoding so an
+    # unsupported top layer cannot dominate the log(N) colour scale.
+    valid_heights = np.isfinite(heights)
+    valid_heights &= heights >= float(model.config.vertical_min_m)
+    valid_heights &= heights < float(model.config.vertical_max_m)
+    heights = heights[valid_heights]
+    if not len(heights):
+        raise ValueError(
+            "GPSRO global heights must contain at least one finite value in "
+            "[vertical_min_m, vertical_max_m)"
+        )
     height_grid, lat_grid, lon_grid = np.meshgrid(
         heights, latitude, longitude, indexing="ij"
     )

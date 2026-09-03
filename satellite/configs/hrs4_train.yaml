@@ -1,0 +1,95 @@
+run:
+  description: "1BHRS4 19-channel training run"
+
+# true: skip training/validation, load train.resume, and run test directly
+test_only: false
+
+data:
+  zarr: "F:/lyh_data/data_zarr_no_provider_filter/1bhrs4.zarr"
+  n_context: 120000
+  n_target: 30000
+  target_overlap: 0.5
+  val_fraction: 0.1
+  test_fraction: 0.1
+
+model:
+  n_channels: 19
+  point_dim: 128
+  latent_dim: 128
+  metadata_dim: 32
+  satellite_embedding_dim: 16
+  num_satellite_embeddings: 512
+  include_angles: true
+  grid_resolution_deg: 2.0
+  local_radius: 1
+  init_lengthscale_deg: 2.0
+  use_latent_processor: true
+  latent_processor_dim: 256
+  latent_patch_size: 0
+  latent_patch_min_height: 64
+  latent_patch_min_width: 128
+  latent_processor_depth: 2
+  latent_processor_heads: 4
+  latent_window_size: 5
+  eps: 1.0e-6
+
+train:
+  epochs: 100
+  batch_size: 1
+  num_workers: 2
+  pin_memory: true
+  max_steps: null
+  seed: 42
+  deterministic: false
+  mixed_precision: false
+  amp_dtype: "float16"
+  validate_every_epochs: 1
+  save_every_epochs: 2
+  # Do not load a 15-channel AMSU-A checkpoint into the 19-channel HRS4 AE.
+  resume: false
+
+optimizer:
+  name: "adamw"
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+
+scheduler:
+  name: "warmup_cosine"
+  warmup_epochs: 2
+  min_lr: 1.0e-6
+
+early_stopping:
+  patience: 8
+  min_delta: 1.0e-5
+
+test:
+  enabled: true
+  context_fractions: [1.0, 0.9, 0.8]
+  context_chunk_size: 16384
+  query_chunk_size: 16384
+  max_samples: 1
+
+plot:
+  enabled: true
+  loss_enabled: true
+  loss_log_scale: true
+  validation_enabled: true
+  test_enabled: true
+  channels: [1]
+  color_std_range: 3.0
+  max_points: 100000
+  point_size: 3.0
+  global_enabled: true
+  global_resolution_deg: 0.25
+  global_query_chunk_size: 16384
+  # null: make one global reconstruction for every satellite ID in the sample.
+  global_satellite_id: null
+  global_is_land: 0
+
+output:
+  run_name: "hrs4_training"
+  runs_dir: "runs"
+
+export:
+  calculate_stats: true
+  standardize_latents: true

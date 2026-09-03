@@ -369,4 +369,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-#  python -m satellite.export_bamua_latents --config satellite/configs/bamua_smoke.yaml --checkpoint "C:\Users\Lenovo\code\local_code\aardvark-weather-public\runs\bamua_smoke\20260826_085312\epoch_0020.pth" --output-zarr "F:\lyh_data\data_latent\1bamua_latents.zarr"  --calculate-stats
+#  python -m satellite.export_bamua_latents --config satellite/configs/atms_train.yaml --checkpoint "C:\Users\Lenovo\code\local_code\aardvark-weather-public\runs\atms_training\20260902_083238\best.pth" --output-zarr "F:\lyh_data\data_latent\atms_latents.zarr"  --calculate-stats

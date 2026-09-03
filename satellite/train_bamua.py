@@ -449,12 +449,12 @@ def run_full_test(model, dataset, test_indices, context_fractions, device,
 
 def run_validation(model, loader, device, reconstruction_path=None,
                    amp_enabled=False, amp_dtype=torch.float16,
-                   epoch=None, plot_output_dir=None, plot_options=None):
+                   epoch=None, plot_output_dir=None, plot_options=None,channels=19):
     model.eval()
     squared_error_sum = 0.0
     valid_count = 0
-    channel_error_sum = torch.zeros(15, dtype=torch.float64)
-    channel_valid_count = torch.zeros(15, dtype=torch.float64)
+    channel_error_sum = torch.zeros(channels, dtype=torch.float64)
+    channel_valid_count = torch.zeros(channels, dtype=torch.float64)
     first_reconstruction = None
     with torch.no_grad():
         progress = tqdm(
@@ -921,8 +921,8 @@ def main():
         model.train()
         squared_error_sum = 0.0
         valid_count = 0
-        channel_error_sum = torch.zeros(15, dtype=torch.float64)
-        channel_valid_count = torch.zeros(15, dtype=torch.float64)
+        channel_error_sum = torch.zeros(config.n_channels, dtype=torch.float64)
+        channel_valid_count = torch.zeros(config.n_channels, dtype=torch.float64)
         progress = tqdm(
             train_loader, total=steps_per_epoch, desc=f"train epoch {epoch}",
             unit="batch", leave=True,
@@ -975,6 +975,7 @@ def main():
                 amp_enabled=amp_enabled, amp_dtype=amp_dtype, epoch=epoch,
                 plot_output_dir=validation_plot_dir / f"epoch_{epoch:04d}",
                 plot_options=plot_options,
+                channels=config.n_channels
             )
             improved, should_stop = early_stopping.update(val_loss)
             if scheduler_name.lower() == "reduce_on_plateau":
