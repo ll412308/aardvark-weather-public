@@ -1,0 +1,100 @@
+test_only: false
+
+data:
+  # MultiInstrumentLatentSequenceDataset requires all stores to use the same H/W.
+  # Their latent channel dimensions D may differ.
+  instruments:
+    1bmhs: "F:/lyh_data/data_latent/1bmhs_latents.zarr"
+    1bhrs4: "F:/lyh_data/data_latent/1bhrs4_latents.zarr"
+    1bamua: "F:/lyh_data/data_latent/1bamua_latents.zarr"
+    gpsro: "F:/lyh_data/data_latent/gpsro_1701_latents.zarr"
+    atms: "F:/lyh_data/data_latent/atms_latents.zarr"
+  interval_hours: 6
+  # Start with one-step (6 h) joint training. Longer rollout configurations can
+  # subsequently be fine-tuned from the best checkpoint of this run.
+  rollout_steps: 1
+  normalize_latents: true
+  val_fraction: 0.1
+  test_fraction: 0.1
+
+model:
+  atmosphere_dim: 128
+  latent_levels: 4
+  spatial_multiple: 9
+  pressure_levels_hpa: null
+  fusion_refine_blocks: 4
+  swin:
+    depth: 8
+    num_heads: 4
+    window_size: [2, 9, 9]
+    mlp_ratio: 4.0
+    drop: 0.0
+    attn_drop: 0.0
+    drop_path: 0.1
+
+loss:
+  # Reconstruct the available instruments at t and forecast their latents at t+6 h.
+  current_reconstruction_weight: 0.25
+  forecast_weight: 1.0
+  # Density is supplied to the adapters as confidence information. Set this to
+  # true only if the loss should ignore grid cells below density_threshold.
+  use_density_mask: false
+  density_threshold: 1.0e-6
+
+train:
+  training_mode: "joint"
+  epochs: 100
+  # Four instruments consume substantially more memory; 1 is the safe default.
+  batch_size: 1
+  num_workers: 0
+  max_steps_per_epoch: null
+  max_validation_steps: null
+  grad_clip: 1.0
+  # Randomly hide some available instruments during training while retaining at
+  # least one, improving robustness to real missing-instrument combinations.
+  instrument_dropout: 0.15
+  mixed_precision: true
+  amp_dtype: "bfloat16"
+  seed: 42
+  deterministic: false
+  validate_every_epochs: 1
+  save_every_epochs: 2
+  resume: null
+  device: "auto"
+  pin_memory: true
+
+optimizer:
+  name: "adamw"
+  lr: 2.0e-4
+  weight_decay: 1.0e-4
+
+scheduler:
+  name: "warmup_cosine"
+  warmup_epochs: 8
+  min_lr: 1.0e-6
+
+early_stopping:
+  patience: 20
+  min_delta: 1.0e-5
+
+test:
+  enabled: true
+  # Evaluate autoregressively from 0 to 48 h after training.
+  rollout_steps: 8
+  batch_size: 1
+  num_workers: 0
+  max_steps: null
+
+plot:
+  enabled: true
+  loss_enabled: true
+  loss_log_scale: true
+  validation_enabled: true
+  test_enabled: true
+  channels: [1]
+  instruments: [1bmhs, 1bhrs4, 1bamua, gpsro, atms]
+  max_future_steps: null
+
+output:
+  run_name: "atmosphere_fusion_five_instruments"
+  runs_dir: "runs"

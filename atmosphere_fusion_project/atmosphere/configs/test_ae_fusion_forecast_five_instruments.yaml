@@ -1,0 +1,94 @@
+# Five raw observation sets -> five AE encoders -> fusion/forecast
+# -> five instrument heads -> five AE decoders -> observation-space outputs.
+
+models:
+  fusion_config: "atmosphere/configs/fusion_five_instruments.yaml"
+  fusion_checkpoint: "C:/Users/Lenovo/code/local_code/aardvark-weather-public/atmosphere_fusion_project/runs/atmosphere_fusion_five_instruments/20260902_134621/best.pth"
+
+  # Each input/output instrument uses its own independently trained AE.
+  instrument_autoencoders:
+    1bamua:
+      config: "../satellite/configs/amsua_train.yaml"
+      checkpoint: "C:/Users/Lenovo/code/local_code/aardvark-weather-public/runs/bamua_training/20260827_113942/best.pth"
+    atms:
+      config: "../satellite/configs/atms_train.yaml"
+      checkpoint: "C:/Users/Lenovo/code/local_code/aardvark-weather-public/runs/atms_training/20260902_083238/best.pth"
+    gpsro:
+      config: "../satellite/configs/gpsro_1701_train.yaml"
+      checkpoint: "C:/Users/Lenovo/code/local_code/aardvark-weather-public/runs/gpsro_autoencoder_reg2/20260901_161510/best.pth"
+    1bhrs4:
+      config: "../satellite/configs/hrs4_train.yaml"
+      checkpoint: "C:/Users/Lenovo/code/local_code/aardvark-weather-public/runs/hrs4_training/20260901_155918/best.pth"
+    1bmhs:
+      config: "../satellite/configs/mhs_train.yaml"
+      checkpoint: "C:/Users/Lenovo/code/local_code/aardvark-weather-public/runs/mhs_training/20260901_192216/best.pth"
+
+selection:
+  # sample_index refers to the 1BAMUA time_series. start_time takes precedence.
+  # sample_index: 1
+  # reference_instrument: "1bamua"  # sample_index与reference_instrument是配套的，如果start_time没有指定，则使用reference_instrument的sample_index对应的时间作为start_time
+  start_time: "2017-01-10T00:00:00"
+
+  # Missing instruments are normal. Fusion proceeds when at least one exists.
+  require_all_inputs: false
+  # Names must exactly match fusion_five_instruments.yaml.
+  input_instruments: [1bmhs, 1bhrs4, 1bamua, gpsro, atms]
+  output_instruments: [1bmhs, 1bhrs4, 1bamua, gpsro, atms]
+
+forecast:
+  # lead 0 is fusion reconstruction; leads 1...8 are 6-hour rollouts.
+  steps: 2
+
+sampling:
+  # Maximum observations passed to each AE encoder at the initial time.
+  # Set an instrument to 0 to encode every observation in that 6-hour bin.
+  max_input_observations:
+    1bamua: 0
+    atms: 0
+    1bhrs4: 0
+    1bmhs: 0
+    gpsro: 0
+  # Verification/query points decoded at every lead. 0 means every target.
+  max_target_observations:
+    1bamua: 0
+    atms: 0
+    1bhrs4: 0
+    1bmhs: 0
+    gpsro: 0
+  encode_chunk_size: 8192
+  decode_chunk_size: 8192
+
+plot:
+  channels:
+    1bamua: [1, 5, 15]
+    atms: [1, 11, 22]
+    1bhrs4: [1, 10, 19]
+    1bmhs: [1, 3, 5]
+  gpsro_value_space: "log"  # kept explicit; end-to-end GPSRO plots enforce log(N)
+  max_points: 50000
+  point_size: 3.0
+  color_std_range: 3.0
+
+generated_queries:   
+  enabled: true  # 没有target时，是否生成该仪器，即是否使用其它仪器来重构没有的仪器
+  # Optional decoder metadata used especially when a lead has no target
+  # observations. If omitted, the script uses the most common satellite_id
+  # from this instrument's closest non-empty 6-hour bin.
+  # satellite_id: {}  # optionally map each instrument to an ID from its Zarr
+  # Random global queries for each instrument and lead.
+  arbitrary_point_count: 20000
+  # Regular global lon/lat grid for radiance instruments and GPSRO.
+  grid_resolution_deg: 2.0
+  # null uses [vertical_min_m, vertical_max_m); the unsupported upper boundary
+  # level is omitted from GPSRO global plots.
+  gpsro_global_heights_m: null
+
+runtime:
+  seed: 42
+  device: "auto"
+  mixed_precision: false
+  amp_dtype: "bfloat16"
+
+output:
+  directory: "F:/lyh_data/end_to_end_test/five_instruments_from_observations_sample1"
+  overwrite: true

@@ -3,74 +3,74 @@ test_only: false
 data:
   instruments:
     1bamua: "F:/lyh_data/data_latent/1bamua_latents.zarr"
-    # 第二个仪器完成 AE + latent 预计算后直接加一行，例如：
-    # mhs: "F:/lyh_data/latent_zarr/mhs_latent.zarr"
   interval_hours: 6
-  rollout_steps: 1
+  rollout_steps: 6       # 最远预报到 t+36h
   normalize_latents: true
   val_fraction: 0.1
   test_fraction: 0.1
 
 model:
-  atmosphere_dim: 32
-  latent_levels: 4
-  spatial_multiple: 9  # 要求进入模型的输入的H,W为该数的倍数，例如181就不行，要插值到180
-  # 如果你希望共同 latent 的垂直层有明确气压意义，在正式训练配置中填写。
+  atmosphere_dim: 64
+  latent_levels: 2
+  spatial_multiple: 9
   pressure_levels_hpa: null
-  fusion_refine_blocks: 1  # fusion最终的block数量
+  fusion_refine_blocks: 2
   swin:
-    depth: 2
+    depth: 4
     num_heads: 4
     window_size: [2, 9, 9]
     mlp_ratio: 4.0
-    drop: 0.0  # drop mlp
-    attn_drop: 0.0  # drop attn
-    drop_path: 0.0  # drop 残差之一
+    drop: 0.0
+    attn_drop: 0.0
+    drop_path: 0.1
 
 loss:
-  current_reconstruction_weight: 0.25
+  current_reconstruction_weight: 0.1
   forecast_weight: 1.0
   use_density_mask: false
   density_threshold: 1.0e-6
 
 train:
   training_mode: "joint"  # joint | fusion_reconstruction | forecast
-  epochs: 3
+  epochs: 30
   batch_size: 1
   num_workers: 0
+  max_steps_per_epoch: null
+  max_validation_steps: null
   grad_clip: 1.0
-  instrument_dropout: 0.0
+  instrument_dropout: 0.15
   mixed_precision: true
-  amp_dtype: "float16"
+  amp_dtype: "bfloat16"
   seed: 42
   deterministic: false
-  max_steps_per_epoch: 3
-  max_validation_steps: 2
   validate_every_epochs: 1
-  save_every_epochs: 1
+  save_every_epochs: 2
   resume: false
+  # 推荐填 rollout=4 阶段的 best.pth。
+  finetune_from: null
   device: "auto"
   pin_memory: true
 
 optimizer:
   name: "adamw"
-  lr: 2.0e-4
+  lr: 5.0e-6
   weight_decay: 1.0e-4
 
 scheduler:
   name: "warmup_cosine"
   warmup_epochs: 1
-  min_lr: 1.0e-6
+  min_lr: 5.0e-7
 
 early_stopping:
-  patience: 5
+  patience: 10
   min_delta: 1.0e-5
 
 test:
   enabled: true
+  rollout_steps: 8       # 所有模型统一测试到48h，可大于训练的6步
   batch_size: 1
   num_workers: 0
-  max_steps: 2
+  max_steps: null
 
 plot:
   enabled: true
@@ -83,5 +83,5 @@ plot:
   max_future_steps: null
 
 output:
-  run_name: "atmosphere_fusion_smoke"
+  run_name: "atmosphere_fusion_rollout_6"
   runs_dir: "runs"

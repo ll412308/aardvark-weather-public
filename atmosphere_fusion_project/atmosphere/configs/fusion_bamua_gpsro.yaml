@@ -1,10 +1,10 @@
 test_only: false
 
 data:
+  # 两种仪器的 latent 都是 [T, 128, 91, 180]，可以在同一空间网格上融合。
   instruments:
     1bamua: "F:/lyh_data/data_latent/1bamua_latents.zarr"
-    # 第二个仪器完成 AE + latent 预计算后直接加一行，例如：
-    # mhs: "F:/lyh_data/latent_zarr/mhs_latent.zarr"
+    gpsro: "F:/lyh_data/data_latent/gpsro_latents_reg2.zarr"
   interval_hours: 6
   rollout_steps: 1
   normalize_latents: true
@@ -12,65 +12,67 @@ data:
   test_fraction: 0.1
 
 model:
-  atmosphere_dim: 32
-  latent_levels: 4
-  spatial_multiple: 9  # 要求进入模型的输入的H,W为该数的倍数，例如181就不行，要插值到180
-  # 如果你希望共同 latent 的垂直层有明确气压意义，在正式训练配置中填写。
+  atmosphere_dim: 64
+  latent_levels: 2
+  spatial_multiple: 9
   pressure_levels_hpa: null
-  fusion_refine_blocks: 1  # fusion最终的block数量
+  fusion_refine_blocks: 2
   swin:
-    depth: 2
+    depth: 4
     num_heads: 4
     window_size: [2, 9, 9]
     mlp_ratio: 4.0
-    drop: 0.0  # drop mlp
-    attn_drop: 0.0  # drop attn
-    drop_path: 0.0  # drop 残差之一
+    drop: 0.0
+    attn_drop: 0.0
+    drop_path: 0.1
 
 loss:
   current_reconstruction_weight: 0.25
   forecast_weight: 1.0
+  # rho 只作为 adapter/fusion 的输入置信度，不用它屏蔽 latent loss。
   use_density_mask: false
   density_threshold: 1.0e-6
 
 train:
-  training_mode: "joint"  # joint | fusion_reconstruction | forecast
-  epochs: 3
-  batch_size: 1
+  training_mode: "joint"
+  epochs: 100
+  batch_size: 2
   num_workers: 0
+  max_steps_per_epoch: null
+  max_validation_steps: null
   grad_clip: 1.0
-  instrument_dropout: 0.0
+  # 随机遮掉部分已存在的仪器，但每个样本至少保留一种。
+  instrument_dropout: 0.15
   mixed_precision: true
-  amp_dtype: "float16"
+  amp_dtype: "bfloat16"
   seed: 42
   deterministic: false
-  max_steps_per_epoch: 3
-  max_validation_steps: 2
   validate_every_epochs: 1
-  save_every_epochs: 1
+  save_every_epochs: 2
   resume: false
   device: "auto"
   pin_memory: true
 
 optimizer:
   name: "adamw"
-  lr: 2.0e-4
+  lr: 1.0e-4
   weight_decay: 1.0e-4
 
 scheduler:
   name: "warmup_cosine"
-  warmup_epochs: 1
+  warmup_epochs: 5
   min_lr: 1.0e-6
 
 early_stopping:
-  patience: 5
+  patience: 20
   min_delta: 1.0e-5
 
 test:
   enabled: true
+  rollout_steps: 8
   batch_size: 1
   num_workers: 0
-  max_steps: 2
+  max_steps: null
 
 plot:
   enabled: true
@@ -79,9 +81,9 @@ plot:
   validation_enabled: true
   test_enabled: true
   channels: [1]
-  instruments: null
+  instruments: [1bamua, gpsro]
   max_future_steps: null
 
 output:
-  run_name: "atmosphere_fusion_smoke"
+  run_name: "atmosphere_fusion_bamua_gpsro"
   runs_dir: "runs"

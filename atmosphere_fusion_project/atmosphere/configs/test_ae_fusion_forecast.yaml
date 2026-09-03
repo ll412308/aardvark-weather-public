@@ -1,0 +1,68 @@
+# End-to-end: instrument observations/latents -> fusion -> forecast -> AE decoder.
+
+models:
+  # Change these two fields to compare one-step, rollout-2/4/6 models.
+  fusion_config: "atmosphere/configs/fusion_rollout_4.yaml"
+  fusion_checkpoint: "C:/Users/Lenovo/code/local_code/aardvark-weather-public/atmosphere_fusion_project/runs/atmosphere_fusion_rollout_4/20260828_162413/best.pth"
+
+  bamua_config: "../satellite/configs/amsua_train.yaml"
+  bamua_checkpoint: "C:/Users/Lenovo/code/local_code/aardvark-weather-public/runs/bamua_training/20260827_113942/best.pth"
+
+selection:
+  # sample_index refers to BAMUA time_series. start_time takes precedence when set.
+  sample_index: 1
+  start_time: null       # e.g. "2017-01-10T00:00:00" or Unix nanoseconds
+  # These instruments provide the initial state. They must exist in fusion_config.
+  input_instruments: [1bamua]
+  # Only 1bamua has an AE decoder registered in the current project.
+  output_instruments: [1bamua]
+
+forecast:
+  # Includes lead 0 automatically, then forecasts lead 1 ... lead N.
+  steps: 8               # 8 * 6 h = 48 h
+
+sampling:
+  # true: selected BAMUA raw observations pass through the AE Encoder again.
+  # false: use BAMUA latent directly from its exported latent Zarr.
+  encode_bamua_observations: true
+  max_input_observations: 0   # 0 uses the complete initial 6 h bin，0意味着使用完整的初始6小时观测
+  # 0 decodes every target observation in every lead-time 6 h bin.
+  # Change to e.g. 50000 for an evenly spread, smaller plotting/test subset.
+  max_target_observations: 0  # 0意味着输出全部target点的观测
+  encode_chunk_size: 16384
+  decode_chunk_size: 16384
+
+arbitrary_queries:
+  # null generates random global points; otherwise use an NPZ containing
+  # longitude/latitude and optional satellite_id/is_land arrays.
+  query_npz: null
+  point_count: 20000
+
+query_metadata:
+  # null chooses the most frequent satellite in the initial BAMUA bin.
+  # You may instead write a readable name such as "METOP-A" or "NOAA-18".
+  satellite: null
+  # Used for generated arbitrary points and the regular grid when no mask exists.
+  is_land: 0
+
+grid:
+  resolution_deg: 2.0
+  # Optional bool NPY with the generated grid shape, e.g. [91,180] at 2 degrees.
+  land_mask_npy: null
+
+plot:
+  channels: [1, 5, 15]  # 1-based brightness-temperature channels
+  point_size: 3.0
+  # All three plot types share mean +/- this many channel standard deviations.
+  color_std_range: 3.0
+
+runtime:
+  seed: 42
+  device: "auto"
+  # Start with false for the first numerical check; enable after results are finite.
+  mixed_precision: false
+  amp_dtype: "bfloat16"
+
+output:
+  directory: "F:/lyh_data/end_to_end_test/rollout4_sample1"
+  overwrite: true

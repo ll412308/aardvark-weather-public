@@ -87,6 +87,11 @@ class MultiInstrumentLatentSequenceDataset(Dataset):
             else:
                 mean = np.zeros(dim, dtype=np.float32)
                 std = np.ones(dim, dtype=np.float32)
+            if not np.isfinite(mean).all() or not np.isfinite(std).all():
+                raise ValueError(
+                    f"{name}: latent_mean/latent_std contain NaN or Inf in "
+                    f"{path}. Re-export this instrument latent Zarr."
+                )
             std = np.maximum(std, 1.0e-6)
             self.specs[name] = InstrumentLatentSpec(
                 name=name,
@@ -102,9 +107,9 @@ class MultiInstrumentLatentSequenceDataset(Dataset):
             )
             mapping = {int(t): i for i, t in enumerate(times.tolist())}
             self._time_to_index[name] = mapping
-            global_times.update(mapping.keys())
+            global_times.update(mapping.keys())  
 
-        self.global_times = np.asarray(sorted(global_times), dtype=np.int64)
+        self.global_times = np.asarray(sorted(global_times), dtype=np.int64)  # 全局时间戳，按升序排列，确保所有仪器的时间戳一致，即所有仪器的时间戳都在该全局时间戳列表中（并集），该时间戳下至少存在一个仪器
         global_set = set(int(t) for t in self.global_times.tolist())
         starts = []
         for t0 in self.global_times.tolist():
@@ -113,7 +118,7 @@ class MultiInstrumentLatentSequenceDataset(Dataset):
                 continue
             if all(not any(t in self._time_to_index[n] for n in self.names) for t in seq):
                 continue
-            starts.append(int(t0))
+            starts.append(int(t0))  # 确保该起始时间点对应的序列在全局时间戳中是完整的，即每个时刻至少有一个仪器
         if not starts:
             raise ValueError("No complete regular-time sequences found across latent stores")
         self.start_times = np.asarray(starts, dtype=np.int64)
@@ -238,6 +243,84 @@ def _readable_time(time_ns):
     return np.datetime_as_string(np.datetime64(int(time_ns), "ns"), unit="s")
 
 
+def _print_time_list(title, times):
+    """Print every timestamp in a coverage problem list."""
+    print(f"{title}: count={len(times)}")
+    if not times:
+        print("  none")
+        return
+    for time_ns in times:
+        print(f"  time_ns={int(time_ns)} time={_readable_time(time_ns)}")
+
+
+def _print_six_hour_coverage(dataset):
+    """Report missing timestamps on the full first-to-last 6-hour timeline."""
+    if dataset.global_times.size == 0:
+        print("\n[6-hour time coverage]\nno timestamps")
+        return
+
+    start = int(dataset.global_times[0])
+    end = int(dataset.global_times[-1])
+    interval = int(dataset.interval_ns)
+    # Include the last expected timestamp when it lies on the 6-hour timeline.
+    expected = list(range(start, end + 1, interval))
+    expected_set = set(expected)
+    global_set = set(int(t) for t in dataset.global_times.tolist())
+    global_missing = sorted(expected_set - global_set)
+    global_off_grid = sorted(global_set - expected_set)
+
+    print("\n[6-hour time coverage]")
+    print(f"start_time={_readable_time(start)}")
+    print(f"end_time={_readable_time(end)}")
+    print(f"interval_hours={interval / 3.6e12:g}")
+    print(f"expected_time_count={len(expected)}")
+    print(f"global_union_timestamp_count={len(global_set)}")
+
+    roots = dataset._open()
+    effective_by_instrument = {}
+    unavailable_by_instrument = {}
+    for name in dataset.names:
+        root = roots[name]
+        mapping = dataset._time_to_index[name]
+        unavailable_times = set()
+        if "available" in root:
+            saved_available = np.asarray(root["available"][:], dtype=bool)
+            unavailable_times = {
+                time_ns for time_ns, source_index in mapping.items()
+                if not bool(saved_available[source_index])
+            }
+        effective_by_instrument[name] = set(mapping) - unavailable_times
+        unavailable_by_instrument[name] = unavailable_times
+
+    print("\n[complete 6-hour timeline]")
+    for time_ns in expected:
+        statuses = [
+            f"global={'present' if time_ns in global_set else 'MISSING'}"
+        ]
+        statuses.extend(
+            f"{name}={'available' if time_ns in effective_by_instrument[name] else 'MISSING'}"
+            for name in dataset.names
+        )
+        print(f"time={_readable_time(time_ns)} " + " ".join(statuses))
+
+    _print_time_list("global_missing_times", global_missing)
+    _print_time_list("global_off_grid_times", global_off_grid)
+
+    for name in dataset.names:
+        mapping = dataset._time_to_index[name]
+        stored_times = set(mapping)
+        unavailable_times = unavailable_by_instrument[name]
+        effective_times = effective_by_instrument[name]
+        missing_times = sorted(expected_set - effective_times)
+        off_grid_times = sorted(stored_times - expected_set)
+        print(f"\n[instrument time coverage: {name}]")
+        print(f"stored_timestamp_count={len(stored_times)}")
+        print(f"effective_available_count={len(effective_times)}")
+        _print_time_list("missing_or_unavailable_times", missing_times)
+        _print_time_list("saved_available_false_times", sorted(unavailable_times))
+        _print_time_list("off_grid_times", off_grid_times)
+
+
 def _print_test_summary(path):
     """Small one-sequence test for a latent Zarr store."""
     import zarr
@@ -259,6 +342,7 @@ def _print_test_summary(path):
         interval_hours=6,
         normalize_latents=True,
     )
+    _print_six_hour_coverage(dataset)
     train_idx, val_idx, test_idx = dataset.split_chronological(
         val_fraction=0.1, test_fraction=0.1
     )

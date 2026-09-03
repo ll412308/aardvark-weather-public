@@ -1,3 +1,5 @@
+test_only: false
+
 data:
   instruments:
     1bamua: "F:/lyh_data/data_latent/1bamua_latents.zarr"
@@ -15,17 +17,17 @@ data:
   test_fraction: 0.1
 
 model:
-  atmosphere_dim: 96
-  latent_levels: 4
-  # Adapter/Fusion/Forecast 使用向下取整到 9 倍数的工作网格，Head 后恢复原尺寸。
-  spatial_multiple: 9
+  atmosphere_dim: 64
+  latent_levels: 2
+  spatial_multiple: 9    # 要求进入模型的输入的H,W为该数的倍数，例如181就不行，要插值到180
+  # 如果你希望共同 latent 的垂直层有明确气压意义，在正式训练配置中填写。
   # null = 4 个 learned latent levels。
   # 若你决定使用物理气压层，例如 4 层，可改为 [1000, 700, 400, 200]。
   pressure_levels_hpa: null
   fusion_refine_blocks: 2
   swin:
-    depth: 6
-    num_heads: 6
+    depth: 4
+    num_heads: 4
     # 2° grid 先变为 H=90,W=180；(2,9,9) 在 L/H/W 上都无需 padding。
     window_size: [2, 9, 9]
     mlp_ratio: 4.0
@@ -43,8 +45,9 @@ loss:
   density_threshold: 1.0e-6
 
 train:
+  training_mode: "joint"  # joint | fusion_reconstruction | forecast
   epochs: 100
-  batch_size: 1
+  batch_size: 2
   num_workers: 0
   max_steps_per_epoch: null
   max_validation_steps: null
@@ -59,6 +62,7 @@ train:
   save_every_epochs: 2
   resume: false
   device: "auto"
+  pin_memory: true
 
 optimizer:
   name: "adamw"
@@ -75,9 +79,22 @@ early_stopping:
   min_delta: 1.0e-5
 
 test:
+  enabled: true
+  # 独立于 data.rollout_steps；一步模型也统一测试到 8*6h=48h。
+  rollout_steps: 8
   batch_size: 1
   num_workers: 0
   max_steps: null
+
+plot:
+  enabled: true
+  loss_enabled: true
+  loss_log_scale: true
+  validation_enabled: true
+  test_enabled: true
+  channels: [1]             # 1-based latent channel numbers
+  instruments: null         # 画图时画哪些仪器，null 表示画所有仪器
+  max_future_steps: null    # 画图时，展开多少步，当然不能超过batch的预报步，null 表示画batch包含的所有步
 
 output:
   run_name: "atmosphere_fusion"

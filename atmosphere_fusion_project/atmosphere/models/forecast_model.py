@@ -133,3 +133,128 @@ class AtmosphereFusionForecastModel(nn.Module):
             "current": current,
             "future": future,
         }
+
+
+def _print_shape(name, value):
+    """Pretty shape output used only by the synthetic demo below."""
+    print(f"{name:<42} shape={tuple(value.shape)} dtype={value.dtype}")
+
+
+def _synthetic_shape_demo():
+    """Run every model stage on small fake multi-instrument latent grids."""
+    torch.manual_seed(0)
+
+    # Two instruments may have different latent channel counts D, but their
+    # latitude/longitude grids must be aligned before fusion.
+    batch_size = 2
+    original_height, original_width = 19, 36
+    instrument_dims = {"1bamua": 6, "mhs": 4}
+    model = AtmosphereFusionForecastModel(
+        instrument_dims=instrument_dims,
+        atmosphere_dim=8,
+        latent_levels=2,
+        fusion_refine_blocks=1,
+        swin_depth=2,
+        swin_num_heads=2,
+        swin_window_size=(2, 3, 3),
+        swin_drop_path=0.0,
+        spatial_multiple=3,
+    ).eval()
+
+    latents = {
+        name: torch.randn(batch_size, dim, original_height, original_width)
+        for name, dim in instrument_dims.items()
+    }
+    densities = {
+        name: torch.rand(batch_size, 1, original_height, original_width) * 5.0
+        for name in instrument_dims
+    }
+    available = {
+        "1bamua": torch.tensor([True, True]),
+        # The second batch sample has no MHS, but it still has 1BAMUA.
+        "mhs": torch.tensor([True, False]),
+    }
+
+    print("\n=== 1. Synthetic instrument inputs ===")
+    for name in model.instrument_names:
+        _print_shape(f"{name} latent [B,D,H,W]", latents[name])
+        _print_shape(f"{name} density [B,1,H,W]", densities[name])
+        print(f"{name + ' available':<42} values={available[name].tolist()}")
+
+    output_shapes = model.spatial_shapes(latents)
+    work_size = model._work_size(latents)
+    print("\n=== 2. Grid sizes ===")
+    print(f"original output shapes                    {output_shapes}")
+    print(f"fusion/Swin work size                     {work_size}")
+
+    print("\n=== 3. Resize and instrument adapters ===")
+    tokens, confidences = {}, {}
+    with torch.no_grad():
+        for name in model.instrument_names:
+            resized_latent = model._resize_grid(latents[name], work_size)
+            resized_density = model._resize_grid(densities[name], work_size)
+            tokens[name], confidences[name] = model.adapters[name](
+                resized_latent, resized_density, available[name]
+            )
+            _print_shape(f"{name} resized latent", resized_latent)
+            _print_shape(f"{name} resized density", resized_density)
+            _print_shape(f"{name} atmosphere token [B,C,L,H,W]", tokens[name])
+            _print_shape(f"{name} confidence [B,1,L,H,W]", confidences[name])
+
+        print("\n=== 4. Instrument fusion ===")
+        fused, fusion_weights = model.fusion(
+            tokens, confidences, available
+        )
+        _print_shape("fused atmosphere state", fused)
+        for name in model.instrument_names:
+            _print_shape(f"{name} fusion weight", fusion_weights[name])
+        weight_sum = torch.stack(
+            [fusion_weights[name] for name in model.instrument_names], dim=1
+        ).sum(dim=1)
+        _print_shape("sum of weights over instruments", weight_sum)
+        print(
+            "weight sum min/max                       "
+            f"{weight_sum.min().item():.6f} / {weight_sum.max().item():.6f}"
+        )
+
+        print("\n=== 5. Decode the current fused state ===")
+        current_work_grid = model.decode_state(fused)
+        current_original_grid = model.decode_state(fused, output_shapes)
+        for name in model.instrument_names:
+            _print_shape(
+                f"{name} head output on work grid",
+                current_work_grid[name]["latent"],
+            )
+            _print_shape(
+                f"{name} restored original grid",
+                current_original_grid[name]["latent"],
+            )
+
+        print("\n=== 6. One forecast step and decode ===")
+        future_state = model.forecast_state(fused)
+        _print_shape("future atmosphere state", future_state)
+        future = model.decode_state(future_state, output_shapes)
+        for name in model.instrument_names:
+            _print_shape(
+                f"{name} future restored latent",
+                future[name]["latent"],
+            )
+
+        print("\n=== 7. Complete forward API ===")
+        result = model(latents, densities, available, steps=2)
+        _print_shape("result['state'] after 2 forecast steps", result["state"])
+        for name in model.instrument_names:
+            _print_shape(
+                f"result current {name}", result["current"][name]["latent"]
+            )
+            for lead, prediction in enumerate(result["future"], start=1):
+                _print_shape(
+                    f"result lead {lead} {name}",
+                    prediction[name]["latent"],
+                )
+
+
+if __name__ == "__main__":
+    # Run from atmosphere_fusion_project so package-relative imports work:
+    # python -m atmosphere.models.forecast_model
+    _synthetic_shape_demo()
